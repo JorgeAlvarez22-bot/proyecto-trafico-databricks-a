@@ -87,5 +87,5 @@ Subir el CSV a `Catalog → workspace → default → trafico_raw` en Databricks
 
 ## 👥 Equipo
 
-- Integrante 1
-- Integrante 2
+- Jorge Alejandro Alvarez Sutti
+- Alejandro Gutierrez Romo
