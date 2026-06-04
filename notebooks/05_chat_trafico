@@ -1,0 +1,77 @@
+%pip install anthropic
+dbutils.library.restartPython()
+
+%pip install anthropic
+
+import anthropic
+from pyspark.sql import SparkSession
+
+# ── Configuración ──────────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY = "Antrophic Kay"  # Pega aquí tu API key
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# ── Esquema de la tabla Gold para que Claude sepa qué puede consultar ──────────
+SCHEMA = """
+Tabla: workspace.default.gold_heatmap
+Columnas:
+- timestamp_clean: timestamp (fecha y hora del registro)
+- fecha: date (solo la fecha)
+- hora: integer (hora del día, 0-23)
+- START_LATITUDE: double (latitud del segmento de calle)
+- START_LONGITUDE: double (longitud del segmento de calle)
+- color: string ('green'=fluido, 'yellow'=moderado, 'red'=congestionado)
+"""
+
+# ── Función principal ──────────────────────────────────────────────────────────
+def preguntar(pregunta_usuario: str):
+    # Paso 1: Claude genera el SQL
+    respuesta_sql = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=500,
+        messages=[{
+            "role": "user",
+            "content": f"""Eres un asistente que convierte preguntas en SQL para Apache Spark.
+            
+{SCHEMA}
+
+Genera SOLO el SQL para responder esta pregunta. Sin explicaciones, sin markdown, solo el SQL puro:
+{pregunta_usuario}"""
+        }]
+    )
+    
+    sql_generado = respuesta_sql.content[0].text.strip()
+    sql_generado = sql_generado.replace("```sql", "").replace("```", "").strip()
+    print(f"SQL generado:\n{sql_generado}\n")
+    
+    # Paso 2: Ejecutar el SQL contra Databricks
+    try:
+        resultado_df = spark.sql(sql_generado)
+        resultado_str = resultado_df.limit(20).toPandas().to_string(index=False)
+    except Exception as e:
+        resultado_str = f"Error al ejecutar SQL: {e}"
+    
+    print(f"Resultado:\n{resultado_str}\n")
+    
+    # Paso 3: Claude interpreta el resultado
+    respuesta_final = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": f"""El usuario preguntó: "{pregunta_usuario}"
+            
+Se ejecutó este SQL: {sql_generado}
+
+Y el resultado fue:
+{resultado_str}
+
+Responde la pregunta del usuario en español, de forma clara y concisa, usando los datos del resultado."""
+        }]
+    )
+    
+    print("=" * 60)
+    print("Respuesta:", respuesta_final.content[0].text)
+    print("=" * 60)
+
+preguntar("¿En qué hora del día hay más tráfico rojo?")
